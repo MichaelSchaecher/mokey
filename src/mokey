@@ -1,0 +1,130 @@
+#!/bin/env bash
+
+# mokutil-key is a simple bash script designed to aid in managing MOK certificates used for UEFI.
+# Copyright (C) 2021 <Michael L. Schaecher@mschaecher78@gmail.com>  under MIT License.
+
+# For the most part MOK (Machine Owner Keys) is not considered secure as .
+
+# The shim.efi binary is signed by Microsoft allowing for Secure Boot of other operating systems.
+
+# Secure Boot process with MOK.
+
+# EFI firmware ______ shim ______ grub ______ kernel ______ Passed
+#                                |           |
+#                                |___________|
+#             Failure _________________|
+
+function permissions_check () {
+
+	# Exit script with permission problems.
+	test "$(id -u)" -eq "0" || {
+		echo "${_name}: root permission is required!"
+		exit 1
+	}
+
+}
+
+set -e		# Allows exit as soon as an exit error code is passed, e.i. `exit 1` or `exit 126`.
+
+_name="mokey"
+_version="1"
+
+# The following variables should be readonly in order to pervent something for being changed that should be.
+
+readonly _dir="/etc/$_name"				# Default location for private and public certificates.
+readonly _cnf="/etc/$_name.cnf"				# Default openssl config file used by mokutil-key.
+
+readonly _der="$_dir/$_name.der"					# Public certificate used be MOK.
+readonly _pem="$_dir/$_name.pem"					# Public certificate used for signing.
+readonly _key="$_dir/$_name.key"					# Private certificate used for signing.
+
+# RSA is the encryption that openssl employees though does not by default use AES algorithm like what is
+# used for gpg and ssh keys. This gives the private key a smaller footprint then would be normal for a
+# 2048 bit key. However AES is a better algorithm for generating private keys.
+
+_aes="true"								# Set mokey to use aes.
+
+_rsa="2048"								# This is the default rsa bit size.
+_exr="3650"								# The default of 10 years.
+
+# The license that mokey is under should be displayed.
+readonly _license="$(cat << EOF
+Copyright (C) 2021 MIT License. <Michael L. Schaecher@mschaecher78@gmail.com>
+Homepage <https://www.github.com/mschaecher78/mokutil-key/>
+EOF
+)"
+
+# Give quick info about mokey.
+readonly _info="$(cat << EOF
+${_name} v${_version} : A tool for creating MOK Management keys for Secure Boot.
+EOF
+)"
+
+# Good help is so hard to find, I really don't like that saying.
+readonly _usage="$(cat << EOF
+${_info}
+
+usage
+	${_name} command arg... | ${_name} command arg... <option> | ${_name} command arg... <option> arg...
+
+Command:
+	sign				Sign module or image file when used with an option.
+
+	configure			Edit config file used for certificate generation. This file can also be manually
+					edit using text editor.
+
+	generate			Generate certificate using mokutil-key.cnf and options.
+
+	register			Register certificate into MOK. Warning: only the public certificate is registered
+					located in ${_etc_dir}.
+
+	import				Import a private key as part of ${_name}. At this time PK#11 certificates
+					cannot be import only req rsa certificates can. This command well also generate
+					new public certificates.
+
+	help				Displays help info.
+
+	version				Displays version info only.
+
+Option:
+	-a, --all-modules '/path/to'	Sign all kernel modules with private and public certificate.
+
+	-m, --modules '/path/to'	Sign a single kernel modules with private and public certificate.
+
+	-b, --binary '/path/to'		Sign kernel image or efi binary with private and public certificate.
+
+	-k, --key /path/to'		Use different private key for signing.
+
+	-p, --public '/path/to'		Use different public certificate for signing.
+
+	-r, --rsa			Set rsa encryption size, if no argument is present the default is used.
+
+	-x, --expires			Set days when certificate expires, if no argument is present the default is used.
+
+	-t, --key-type			Used to define key type that is being import.
+
+	--fix				Fix missing config.
+
+${_license}
+EOF
+)"
+
+# Eventhough mokey comes with a config file that is used for openssl commands, still check that it exists and has
+# not been deleted. However this does't mean that mokey needs to be reinstalled, just fixed.
+test -f "$_config" || {
+	_array=( "configure" "help" "version" )				# Array of allowed pass through.
+
+	# Anything that does not match with variable _a then that function is not allowed.
+	[[ ! " ${_array[*]}" =~ $1 ]] && {
+		echo -e "${_name}: missing config file, please run \`sudo ${_name} configure --fix\`!"
+		exit 1
+	}
+
+}
+
+# Because there are many different option that can be use, the use a `while loop`, getopt is not needed for this to work.
+# Besides getopt just adds more complication to an already complicated script.
+while true ; do case "$1" in
+	"help"			)	echo "${_usage}" ;;
+	"version"		)	echo -e "${_info}\n\n${_license}" ;;
+esac ; shift ; test -z "$1" && break ; done
