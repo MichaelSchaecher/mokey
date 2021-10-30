@@ -18,7 +18,7 @@ function permissions_check () {
 
 	# Exit script with permission problems.
 	test "$(id -u)" -eq "0" || {
-		echo "${_name}: root permission is required!" 1>&2
+		echo "$_name: root permission is required!" 1>&2
 		exit 1
 	}
 
@@ -46,6 +46,75 @@ function mokey_config_fix () {
 	}
 }
 
+function mokey_config () {
+
+	# Config file is based on the openssl.cnf located /usr/lib/ssl. Mokutil-Key config was located in the
+	# users home directory, but is now located in the /etc directory. Avoid rewriting the file, just write
+	# to it. This helps keep the premission status of the file.
+
+	# Only allow 2 letter country, this is not something that is required from openssl, infact the full
+	# country name can be used, but to keep things simple just uses the standard 2 letter code.
+	while read -rp "2 letter country code (default = US): " _country ; do
+
+		# Use default if nothing is entered.
+		test -z "$_country" && { _country="US" ; break ; }
+
+		# Make sure that only 2 letter country code is allowed.
+		test ${#_country} -eq "2" && {
+
+			# Only exit with error if for some reason the config file cannot be written to.
+			sed -i -r "s/countryName\t\t=.*/countryName\t\t= $_country/g" $_cnf || {
+				echo "$_name: error writing '$_country' to $_conf"  1>&2
+				exit 1
+			} ; break
+
+		} || echo "Too long - 2 characters max"
+
+	done
+
+	# Cannot allow an empty variable to be written to the config file, so relay as default if nothing
+	# is entered from the user.
+	read -rp "State/Province Name (default = Idaho): " _province
+
+	test -z "$_province" && _province="Idaho"
+	sed -i -r "s/stateOrProvinceName\t=.*/stateOrProvinceName\t= $_province/g" $_conf || {
+		echo "$_name: error writing '$_province' to $_conf" ; exit 1
+	}
+
+	read -rp "locality/City Name (default = Nampa): " _locality
+
+	test -z "$_locality" && _locality="Nampa"
+	sed -i -r "s/localityName\t\t=.*/localityName\t\t= $_locality/g" $_conf || {
+		echo "$_name: error writing '$_locality' to $_conf" ; exit 1
+	}
+
+	read -rp "Organization Name (default = Mokutil-Key Signing): " _organization
+
+	test -z "$_organization" && _organization="Mokutil-Key Signing"
+	sed -i -r "s/0.organizationName\t=.*/0.organizationName\t= $_organization/g" $_conf || {
+		echo "$_name: error writing '$_organization' to $_conf" ; exit 1
+	}
+
+	read -rp "Common Name (default = Secure Boot): " _common
+
+	test -z "$_common" && _common="Secure Boot"
+	sed -i -r "s/commonName\t\t=.*/commonName\t\t= $_common/g" $_conf || {
+		echo "$_name: error writing '$_common' to $_conf" ; exit 1
+	}
+
+	read -rp "Email (default = mokutil_key@secure_boot): " _email
+
+	test -z "$_email" && _email="mokutil_key@secure_boot"
+	sed -i -r "s/emailAddress\t\t=.*/emailAddress\t\t= $_email/g" $_conf || {
+		echo "$_name: error writing '$_email' to $_conf" ; exit 1
+	}
+
+}
+
+function display_help () { echo "$_usage" ; }				# Show the help or usage.
+
+function display_version () { echo -e "$_info\n\n$_license" ; }		# Show version and license info.
+
 set -e		# Allows exit as soon as an exit error code is passed, e.i. `exit 1` or `exit 126`.
 
 _name="mokey"
@@ -53,8 +122,10 @@ _version="1"
 
 # The following variables should be readonly in order to pervent something for being changed that should be.
 
-readonly _dir="/etc/$_name"				# Default location for private and public certificates.
-readonly _cnf="/etc/$_name.cnf"				# Default openssl config file used by mokutil-key.
+# Default location for private and public certificates.
+readonly _dir="/etc/$_name"
+# Default openssl config file used by mokutil-key.
+readonly _cnf="/etc/$_name.cnf"
 
 readonly _der="$_dir/$_name.der"					# Public certificate used be MOK.
 readonly _pem="$_dir/$_name.pem"					# Public certificate used for signing.
@@ -64,8 +135,7 @@ readonly _key="$_dir/$_name.key"					# Private certificate used for signing.
 # used for gpg and ssh keys. This gives the private key a smaller footprint then would be normal for a
 # 2048 bit key. However AES is a better algorithm for generating private keys.
 
-_aes="true"								# Set mokey to use aes.
-
+_aes="true"								# Set mokey to use aes algorithm.
 _rsa="2048"								# This is the default rsa bit size.
 _exr="3650"								# The default of 10 years.
 
@@ -78,7 +148,7 @@ EOF
 
 # Give quick info about mokey.
 readonly _info="$(cat << EOF
-${_name} v${_version} : A tool for creating MOK Management keys for Secure Boot.
+$_name v$_version : A tool for creating MOK Management keys for Secure Boot.
 EOF
 )"
 
@@ -87,7 +157,7 @@ readonly _usage="$(cat << EOF
 ${_info}
 
 usage
-	${_name} command arg... | ${_name} command arg... <option> | ${_name} command arg... <option> arg...
+	$_name command arg... | $_name command arg... <option> | $_name command arg... <option> arg...
 
 Command:
 	sign				Sign module or image file when used with an option.
@@ -100,7 +170,7 @@ Command:
 	register			Register certificate into MOK. Warning: only the public certificate is registered
 					located in ${_etc_dir}.
 
-	import				Import a private key as part of ${_name}. At this time PK#11 certificates
+	import				Import a private key as part of $_name. At this time PK#11 certificates
 					cannot be import only req rsa certificates can. This command well also generate
 					new public certificates.
 
@@ -125,7 +195,7 @@ Option:
 
 	-t, --key-type			Used to define key type that is being import.
 
-	--fix				Fix missing config.
+	    --fix			Fix missing config.
 
 ${_license}
 EOF
@@ -133,12 +203,13 @@ EOF
 
 # Eventhough mokey comes with a config file that is used for openssl commands, still check that it exists and has
 # not been deleted. However this does't mean that mokey needs to be reinstalled, just fixed.
-test -f "$_config" || {
-	_array=( "config" "help" "version" )				# Array of allowed pass through.
+test -f "$_cnf" || {
+
+	readonly _array=( "config" "help" "version" )			# Array of allowed pass through.
 
 	# Anything that does not match with variable _a then that function is not allowed.
 	[[ ! " ${_array[*]}" =~ $1 ]] && {
-		echo -e "${_name}: missing config file, please run \`sudo ${_name} configure --fix\`!" 1>&2
+		echo -e "$_name: missing config file, please run \`sudo $_name configure --fix\`!" 1>&2
 		exit 1
 	}
 
@@ -148,8 +219,12 @@ test -f "$_config" || {
 # Besides getopt just adds more complication to an already complicated script.
 while true ; do case "$1" in
 	"config"		)	permissions_check ; _command="mokey_config" ;;
-	"help"			)	echo "${_usage}" ; break ;;
-	"version"		)	echo -e "${_info}\n\n${_license}" ; break ;;
+	"help"			)	_command="display_help" ;;
+	"version"		)	_commnad="display_version" ;;
+	"-r"|"--rsa"		)
+	;;
+	"-x"|"--expires"	)
+	;;
 	"--fix"			)
 
 		# Make sure that --fix option only works with config command.
@@ -162,4 +237,6 @@ while true ; do case "$1" in
 esac ; shift ; test -z "$1" && break ; done
 
 # Run command or exit if command is not present.
-${_command} || { echo "${_name}: missing command!" 1>&2 ; exit 126 ; }
+test -n "${_command}" && ${_command} || {
+	echo "$_name: command not found or missing!" 1>&2 ; exit 126
+}
