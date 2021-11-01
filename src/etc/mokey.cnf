@@ -1,0 +1,27 @@
+# This definition stops the following lines choking if HOME isn't defined.
+HOME                    = /etc/mokey
+RANDFILE                = /etc/.rnd
+
+[ req ]
+dir                     = /etc/mokey
+default_keyfile         = $dir/mokey.key
+distinguished_name      = req_distinguished_name
+x509_extensions         = v3
+string_mask             = utf8only
+prompt                  = no
+
+[ req_distinguished_name ]
+countryName		= US
+stateOrProvinceName     = Idaho
+localityName            = Nampa
+0.organizationName      = mokey Signing
+commonName              = Secure Boot
+emailAddress            = mschaecher78@gmial.comg
+
+[ v3 ]
+subjectKeyIdentifier    = hash
+keyUsage                = nonRepudiation, digitalSignature, keyEncipherment
+authorityKeyIdentifier  = keyid:always,issuer
+basicConstraints        = critical,CA:TRUE
+extendedKeyUsage        = codeSigning,1.3.6.1.4.1.311.10.3.6,1.3.6.1.4.1.2312.16.1.2
+nsComment               = "OpenSSL Generated Certificate"

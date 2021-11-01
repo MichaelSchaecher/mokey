@@ -3,9 +3,8 @@
 # mokutil-key is a simple bash script designed to aid in managing MOK certificates used for UEFI.
 # Copyright (C) 2021 <Michael L. Schaecher@mschaecher78@gmail.com>  under MIT License.
 
-# For the most part MOK (Machine Owner Keys) is not considered secure as .
-
-# The shim.efi binary is signed by Microsoft allowing for Secure Boot of other operating systems.
+# For the most part MOK (Machine Owner Keys) is not considered secure as .The shim.efi binary is signed by Microsoft allowing for
+# Secure Boot of other operating systems.
 
 # Secure Boot process with MOK.
 
@@ -15,105 +14,97 @@
 #             Failure _________________|
 
 function permissions_check () {
-
 	# Exit script with permission problems.
-	test "$(id -u)" -eq "0" || {
-		echo "$_name: root permission is required!" 1>&2
-		exit 1
-	}
-
+	test "$(id -u)" -eq "0" || { echo "$_name: root permission is required!" 1>&2 & exit 1 ; }
 }
 
-function mokey_config_fix () {
+function mokey_cnf_fix () {
 
+	# Github link to raw mokey.cnf file.
 	local _download="https://raw.githubusercontent.com/mschaecher78/$_name/main/src$_cnf"
 
-	# If mokey is not installed byway of a package manager then make wget is installed and if the
-	# application is missing then error with command not found.
-	which wget &> /dev/null && {
+	# If for some reason the config file couldn't be downloaded; panic.
+	if echo "$_name: installing $_cnf" & ! wget -c "$_download" -O $_cnf  &> /dev/null ; then
+			echo "$_name: error downloading $_download!" 1>&2 & exit 1
+	fi
 
-		# If for some reason the config file couldn't be downloaded; panic.
-		wget -c "$_download" -O $_cnf  &> /dev/null && {
-			echo "$_name: installing $_cnf"
-		} || {
-			echo "$_name: error downloading $_download!" 1>&2
-			exit 1
-		}
-
-	} || {
-		echo "$_name: requires wget for 'configure --fix' to function!" 1>&2
-		exit 126
-	}
 }
 
-function mokey_config () {
+function mokey_cnf () {
 
-	# Config file is based on the openssl.cnf located /usr/lib/ssl. Mokutil-Key config was located in the
-	# users home directory, but is now located in the /etc directory. Avoid rewriting the file, just write
-	# to it. This helps keep the premission status of the file.
+	# Config file is based on the openssl.cnf located /usr/lib/ssl. Mokutil-Key config was located in the users home directory,
+	# but is now located in the /etc directory. Avoid rewriting the file, just write to it. This helps keep the premission status
+	# of the file.
 
-	# Only allow 2 letter country, this is not something that is required from openssl, infact the full
-	# country name can be used, but to keep things simple just uses the standard 2 letter code.
-	while read -rp "2 letter country code (default = US): " _country ; do
-
-		# Use default if nothing is entered.
-		test -z "$_country" && { _country="US" ; break ; }
-
-		# Make sure that only 2 letter country code is allowed.
-		test ${#_country} -eq "2" && {
-
-			# Only exit with error if for some reason the config file cannot be written to.
-			sed -i -r "s/countryName\t\t=.*/countryName\t\t= $_country/g" $_cnf || {
-				echo "$_name: error writing '$_country' to $_conf"  1>&2
-				exit 1
-			} ; break
-
-		} || echo "Too long - 2 characters max"
-
+	# Only allow 2 letter country, this is not something that is required from openssl, infact the full country name can be used,
+	# but to keep things simple just uses the standard 2 letter code.
+	while test -n "$_country" ; do
+		test ${#_country} -eq "2" || read -rp "Too long - 2 characters max: " _country
+		if ! sed -i -r "s/countryName.*/countryName\t\t= $_country/g" $_cnf ; then
+			echo "$_name: error writing '$_country' to $_cnf"  1>&2 ; exit 1
+		fi
+		break
 	done
 
-	# Cannot allow an empty variable to be written to the config file, so relay as default if nothing
-	# is entered from the user.
-	read -rp "State/Province Name (default = Idaho): " _province
+	# Cannot allow an empty variable to be written to the config file, so relay as default if nothing is entered from the user.
+	if test -n $_state ; then
+		if ! sed -i -r "s/stateOrProvinceName.*/stateOrProvinceName\t= $_state/g" $_cnf ; then
+			echo "$_name: error writing '$_state' to $_cnf" 1>&2 ; exit 1
+		fi
+	fi
 
-	test -z "$_province" && _province="Idaho"
-	sed -i -r "s/stateOrProvinceName\t=.*/stateOrProvinceName\t= $_province/g" $_conf || {
-		echo "$_name: error writing '$_province' to $_conf" ; exit 1
-	}
+	if test -n "$_city" ; then
+		if ! sed -i -r "s/localityName.*/localityName\t\t= $_city/g" $_cnf ; then
+			echo "$_name: error writing '$_city' to $_cnf" 1>&2 ; exit 1
+		fi
+	fi
 
-	read -rp "locality/City Name (default = Nampa): " _locality
+	if test -n"$_org" ; then
+		if ! sed -i -r "s/0.organizationName.*/0.organizationName\t= $_org/g" $_cnf ; then
+			echo "$_name: error writing '$_org' to $_cnf" 1>&2 ; exit 1
+		fi
+	fi
 
-	test -z "$_locality" && _locality="Nampa"
-	sed -i -r "s/localityName\t\t=.*/localityName\t\t= $_locality/g" $_conf || {
-		echo "$_name: error writing '$_locality' to $_conf" ; exit 1
-	}
+	if test -n "$_title" ; then
+		if ! sed -i -r "s/commonName.*/commonName\t\t= $_title/g" $_cnf ; then
+			echo "$_name: error writing '$_title' to $_cnf" 1>&2 ; exit 1
+		fi
+	fi
 
-	read -rp "Organization Name (default = Mokutil-Key Signing): " _organization
-
-	test -z "$_organization" && _organization="Mokutil-Key Signing"
-	sed -i -r "s/0.organizationName\t=.*/0.organizationName\t= $_organization/g" $_conf || {
-		echo "$_name: error writing '$_organization' to $_conf" ; exit 1
-	}
-
-	read -rp "Common Name (default = Secure Boot): " _common
-
-	test -z "$_common" && _common="Secure Boot"
-	sed -i -r "s/commonName\t\t=.*/commonName\t\t= $_common/g" $_conf || {
-		echo "$_name: error writing '$_common' to $_conf" ; exit 1
-	}
-
-	read -rp "Email (default = mokutil_key@secure_boot): " _email
-
-	test -z "$_email" && _email="mokutil_key@secure_boot"
-	sed -i -r "s/emailAddress\t\t=.*/emailAddress\t\t= $_email/g" $_conf || {
-		echo "$_name: error writing '$_email' to $_conf" ; exit 1
-	}
+	if test -n "$_mail" ; then
+		if ! sed -i -r "s/emailAddress\t\t=.*/emailAddress\t\t= $_mail/g" $_cnf ; then
+			echo "$_name: error writing '$_mail' to $_cnf" 1>&2 ; exit 1
+		fi
+	fi
 
 }
 
-function display_help () { echo "$_usage" ; }				# Show the help or usage.
+function generate_certs () {
+	# For some reason even if the openssl fails to generate new private key and public certificates, mokey well sometimes think
+	# that that the command worked. So in order for a new to be generated the old one needs to be moved.
 
-function display_version () { echo -e "$_info\n\n$_license" ; }		# Show version and license info.
+	# Rename private key and public certificates.
+	find $_dir -type f -name "$_name.*" | while read -r _file ; do mv -f $_file $_file.old ; done
+
+	# Generate private key first and public certificates
+	echo "Creating new private and public key pair" &
+	openssl req -config "$_cnf" -sha256 -new -x509 -newkey rsa:$_rsa \
+	-nodes -days $_exr -outform DER -out $_der &> /dev/null && openssl \
+	x509 -in $_der -inform DER -outform PEM -out $_pem &> /dev/null
+
+
+	# Testing that the command ran without error still cause mokutil-key to should that the private key and public
+	# certificates were created: even with nothing was done. In order to fix this, the older key and certificates
+	# are removed.
+
+	# Check that the files exist.
+	if test ! -f "${_key}" && test ! -f "${_der}" && test ! -f "${_pem}" ; then
+		echo "${_name}: failed to create private/public certificate!" 1>&2 ; exit 1
+	fi
+
+	rm -f $_dir*.old						# If everything goes well remove the old.
+
+}
 
 set -e		# Allows exit as soon as an exit error code is passed, e.i. `exit 1` or `exit 126`.
 
@@ -123,7 +114,7 @@ _version="1"
 # The following variables should be readonly in order to pervent something for being changed that should be.
 
 # Default location for private and public certificates.
-readonly _dir="/etc/$_name"
+readonly _dir="/etc/$_name/"
 # Default openssl config file used by mokutil-key.
 readonly _cnf="/etc/$_name.cnf"
 
@@ -131,11 +122,8 @@ readonly _der="$_dir/$_name.der"					# Public certificate used be MOK.
 readonly _pem="$_dir/$_name.pem"					# Public certificate used for signing.
 readonly _key="$_dir/$_name.key"					# Private certificate used for signing.
 
-# RSA is the encryption that openssl employees though does not by default use AES algorithm like what is
-# used for gpg and ssh keys. This gives the private key a smaller footprint then would be normal for a
-# 2048 bit key. However AES is a better algorithm for generating private keys.
+#
 
-_aes="true"								# Set mokey to use aes algorithm.
 _rsa="2048"								# This is the default rsa bit size.
 _exr="3650"								# The default of 10 years.
 
@@ -157,22 +145,18 @@ readonly _usage="$(cat << EOF
 ${_info}
 
 usage
-	$_name command arg... | $_name command arg... <option> | $_name command arg... <option> arg...
+	$_name command arg... | $_name command arg... <option/config option> | $_name command arg... <option> arg...
 
 Command:
 	sign				Sign module or image file when used with an option.
 
-	configure			Edit config file used for certificate generation. This file can also be manually
+	config				Edit config file used for certificate generation. This file can also be manually
 					edit using text editor.
 
 	generate			Generate certificate using mokutil-key.cnf and options.
 
 	register			Register certificate into MOK. Warning: only the public certificate is registered
 					located in ${_etc_dir}.
-
-	import				Import a private key as part of $_name. At this time PK#11 certificates
-					cannot be import only req rsa certificates can. This command well also generate
-					new public certificates.
 
 	help				Displays help info.
 
@@ -193,9 +177,22 @@ Option:
 
 	-x, --expires			Set days when certificate expires, if no argument is present the default is used.
 
-	-t, --key-type			Used to define key type that is being import.
+	-c, --config 'openssl.cnf'	Set path to openssl.cnf file.
 
 	    --fix			Fix missing config.
+
+Config Option:
+	-C, --country			Current 2 letter country code.
+
+	-ST, --state			Current state or province.
+
+	-L, --city			Current city.
+
+	-O, --org			Name of organization or company name.
+
+	-CN, --title			Name of group related to organization or company.
+
+	-M, --mail			Email of group, person or company.
 
 ${_license}
 EOF
@@ -209,34 +206,67 @@ test -f "$_cnf" || {
 
 	# Anything that does not match with variable _a then that function is not allowed.
 	[[ ! " ${_array[*]}" =~ $1 ]] && {
-		echo -e "$_name: missing config file, please run \`sudo $_name configure --fix\`!" 1>&2
-		exit 1
+		echo -e "$_name: missing config file, please run \`sudo $_name configure --fix\`!" 1>&2 ; exit 1
 	}
 
 }
 
-# Because there are many different option that can be use, the use a `while loop`, getopt is not needed for this to work.
-# Besides getopt just adds more complication to an already complicated script.
+# Because there are many different option that can be use, the use a `while loop`, getopt is not needed for this to
+# work. Besides getopt just adds more complication to an already complicated script.
 while true ; do case "$1" in
-	"config"		)	permissions_check ; _command="mokey_config" ;;
-	"help"			)	_command="display_help" ;;
-	"version"		)	_commnad="display_version" ;;
+	"config"		)	permissions_check ; _command="mokey_cnf" ;;
+	"generate"		) 	permissions_check ; _command="generate_certs" ;;
+	"help"			)	echo "$_usage" ; exit 0 ;;
+	"version"		)	echo -e "$_info\n\n$_license" ; exit 0 ;;
 	"-r"|"--rsa"		)
+		# This option can be ran without an argument, if that is done then set default.
+		! echo "$2" | grep -qe '-.*' && _rsa="$2" || break
+
+		# Only except numbers, error out if letters are used.
+		if test "${_rsa##[0-9]*}" ; then
+			echo "$_name: '$_rsa' invalid argument!" 1>&2
+			exit 1
+		fi
+
+		# If out of range the error.
+		if test "$_rsa" -lt "2048" || test "$_rsa" -gt "8192" ; then
+			echo "$_name: '$_rsa' out of range [2048 - 8192] bits!" 1>&2
+			exit 1
+		fi
 	;;
 	"-x"|"--expires"	)
-	;;
-	"--fix"			)
+		# This option can be ran without an argument, if that is done then set default.
+		! echo "$2" | grep -qe '-.*' && _exr="$2" || break
 
+		# Only except numbers, error out if letters are used.
+		if test "${_exr##[0-9]*}" ; then
+			echo "$_name: '$_exr' invalid argument!" 1>&2
+			exit 1
+		fi
+
+		# If out of range the error.
+		if test "$_exr" -gt "3650" ; then
+			echo "$_name: '$1' out of range [2048 - 8192] bits!" 1>&2
+			exit 1
+		fi
+	;;
+	"-c"|"--config"		)	test -z "$1" || test -f "$1" && _cnf="$1" ;;
+	"--fix"			)
 		# Make sure that --fix option only works with config command.
-		test "$_command" = "mokey_config" && _command="${_command}_fix" || {
+		if ! test "$_command" = "mokey_cnf" ; then
 			echo "$_name: '--fix' option only works with 'config' command!" 1>&2
 			exit 1
-		}
+		fi
 
+		_command="${_command}_fix"
 	;;
+	"-C"|"--country"	)	shift ; _country="$1" ;;
+	"-ST"|"--state"		)	shift ; _state="$1" ;;
+	"-L"|"--city"		)	shift ; _city="$1" ;;
+	"-O"|"--org"		)	shift ; _org="$1" ;;
+	"-CN"|"--title"		)	shift ; _title="$1" ;;
+	"-M"|"--mail"		)	shift ; _mail="$1" ;;
 esac ; shift ; test -z "$1" && break ; done
 
-# Run command or exit if command is not present.
-test -n "${_command}" && ${_command} || {
-	echo "$_name: command not found or missing!" 1>&2 ; exit 126
-}
+# If the command is set then exit with an error.
+if ! $_command ; then echo "$_name: command not found or missing!" 1>&2 ; exit 126 ; fi
