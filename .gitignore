@@ -1,1 +1,5 @@
 .vscode/
+# Directory used for testing.
+root/
+
+.gitignore

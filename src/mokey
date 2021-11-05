@@ -13,12 +13,14 @@
 #                                |___________|
 #             Failure _________________|
 
-function permissions_check () {
+function mandatory_audit () {
+
 	# Exit script with permission problems.
 	test "$(id -u)" -eq "0" || { echo "$_name: root permission is required!" 1>&2 & exit 1 ; }
+
 }
 
-function mokey_cnf_fix () {
+function fix_revise_shape () {
 
 	# Github link to raw mokey.cnf file.
 	local _download="https://raw.githubusercontent.com/mschaecher78/$_name/main/src$_cnf"
@@ -30,7 +32,7 @@ function mokey_cnf_fix () {
 
 }
 
-function mokey_cnf () {
+function revise_shape () {
 
 	# Config file is based on the openssl.cnf located /usr/lib/ssl. Mokutil-Key config was located in the users home directory,
 	# but is now located in the /etc directory. Avoid rewriting the file, just write to it. This helps keep the premission status
@@ -79,7 +81,8 @@ function mokey_cnf () {
 
 }
 
-function generate_certs () {
+function set_up_premit () {
+
 	# For some reason even if the openssl fails to generate new private key and public certificates, mokey well sometimes think
 	# that that the command worked. So in order for a new to be generated the old one needs to be moved.
 
@@ -106,10 +109,58 @@ function generate_certs () {
 
 }
 
+function john_hancock () {
+
+	# Check that the key pair used matches.
+	if ! test "$_check_private" = "$_check_public" ; then
+		echo "$_name: public certificate does't match with private key!" 1>&2 ; exit 1
+	fi
+
+	# This only works for key and certificate pairs generatered the way that is described by Ubuntu and Redhat.
+	# If using any other key pair well produce an error and fixing that would be overly complicated, so it would
+	# be better to require Ubuntu style keys.
+
+	# In order to keep things simple use case option instead of different functions. That way everything is under
+	# one roof sort-of speak.
+	case "$_sign" in
+		"all"		)
+			test -z "$_crt" && _crt="$_der"			# If certificate is not set use default.
+
+			# There is no need to relay what module is being signed, just that modules are being signed.
+			echo "$_name: signing all kernel modules in $_signing" & find \
+			$_signing -type f -name "*.ko" | while read -r _modules ; do
+				if ! kmodsign sha512 $_key $_crt $_modules &> /dev/null ; then
+					echo "$_name: unable to sign $_modules" 1>&2 ; exit 1
+				fi
+			done
+		;;
+		"mod"		)
+			test -z "$_crt" && _crt="$_der"			# If certificate is not set use default.
+
+			if echo "$_name: signing kernel module in $_signing" &
+			! kmodsign sha512 $_key $_crt $_signing &> /dev/null ; then
+				echo "$_name: unable to sign $_signing" 1>&2 ; exit 1
+			fi
+		;;
+		"bin"		)
+			# Use different public certificate for binary images.
+			test -z "$_crt" && _crt="pem"
+
+			if echo "$_name: signing binary image $_signing" & sbsign --key $_key \
+			--cert $_crt $_signing --output $_signing.signed &> /dev/null ; then
+				mv -f $_signing.signed $_signing
+			else
+				echo "$_name: unable to sign $_signing" 1>&2 ; exit 1
+			fi
+		;;
+	esac
+
+}
+
 set -e		# Allows exit as soon as an exit error code is passed, e.i. `exit 1` or `exit 126`.
 
 _name="mokey"
-_version="1"
+_version="1.44-307"
 
 # The following variables should be readonly in order to pervent something for being changed that should be.
 
@@ -121,8 +172,6 @@ readonly _cnf="/etc/$_name.cnf"
 readonly _der="$_dir/$_name.der"					# Public certificate used be MOK.
 readonly _pem="$_dir/$_name.pem"					# Public certificate used for signing.
 readonly _key="$_dir/$_name.key"					# Private certificate used for signing.
-
-#
 
 _rsa="2048"								# This is the default rsa bit size.
 _exr="3650"								# The default of 10 years.
@@ -155,7 +204,7 @@ Command:
 
 	generate			Generate certificate using mokutil-key.cnf and options.
 
-	register			Register certificate into MOK. Warning: only the public certificate is registered
+	enroll				Register certificate into MOK. Warning: only the public certificate is registered
 					located in ${_etc_dir}.
 
 	help				Displays help info.
@@ -163,9 +212,9 @@ Command:
 	version				Displays version info only.
 
 Option:
-	-a, --all-modules '/path/to'	Sign all kernel modules with private and public certificate.
+	-a, --all-mods '/path/to'	Sign all kernel modules with private and public certificate.
 
-	-m, --modules '/path/to'	Sign a single kernel modules with private and public certificate.
+	-m, --mod '/path/to'		Sign a single kernel modules with private and public certificate.
 
 	-b, --binary '/path/to'		Sign kernel image or efi binary with private and public certificate.
 
@@ -182,17 +231,17 @@ Option:
 	    --fix			Fix missing config.
 
 Config Option:
-	-C, --country			Current 2 letter country code.
+	-C				Current 2 letter country code.
 
-	-ST, --state			Current state or province.
+	-ST				Current state or province.
 
-	-L, --city			Current city.
+	-L				Current city.
 
-	-O, --org			Name of organization or company name.
+	-O				Name of organization or company name.
 
-	-CN, --title			Name of group related to organization or company.
+	-CN				Name of group related to organization or company.
 
-	-M, --mail			Email of group, person or company.
+	-M				Email of group, person or company.
 
 ${_license}
 EOF
@@ -214,10 +263,72 @@ test -f "$_cnf" || {
 # Because there are many different option that can be use, the use a `while loop`, getopt is not needed for this to
 # work. Besides getopt just adds more complication to an already complicated script.
 while true ; do case "$1" in
-	"config"		)	permissions_check ; _command="mokey_cnf" ;;
-	"generate"		) 	permissions_check ; _command="generate_certs" ;;
+	"sign"			)	mandatory_audit ; _command="john_hancock" ;;
+	"config"		)	mandatory_audit ; _command="revise_shape" ;;
+	"generate"		) 	mandatory_audit ; _command="set_up_premit" ;;
 	"help"			)	echo "$_usage" ; exit 0 ;;
 	"version"		)	echo -e "$_info\n\n$_license" ; exit 0 ;;
+	"-a"|"--all-mod"	)
+		# Make sure that the directory exists.
+		test -d "$2" || { echo "$_name: $2 not a directory!" 1>&2 ; exit ; }
+		_sign="all"
+		_signing="$2"
+	;;
+	"-m"|"--mod"		)
+		# Make sure that the directory exists.
+		if ! echo "$2" | grep -qe'.*.ko' &> /dev/null ; then
+			echo "$_name: $2 not a kernel module!" 1>&2 ; exit
+		else
+			_sign="mod" ; _signing="$2"
+		fi
+	;;
+	"-b"|"--binary"		)
+		# Make sure that only the binary images that can be signed are signed.
+		test ! -f "$2" && { echo "$_mokey: $2 doesn't exist or is not a file!" 1>&2 ; exit 1 ; }
+		if ! (echo "$2" | grep -q 'vmlinuz.*') || ! (echo "$2" | grep -q 'grub.*.efi') ; then
+			echo "$_name: signing $2 is not premintted!" 1>&2 ; exit 1
+		else
+			_sign="bin" ; _signing="$2"
+		fi
+	;;
+	"-k"|"--key"		)
+		# make sure that the file is a file and not a directory and if everything is good then set _path
+		# variable.
+		if test -f "$2" ; then
+			_key="$2"
+			_check_private=$(openssl rsa -noout -modulus -in "$_key" | openssl md5)
+		else
+			echo "$_name: $2 is not a valid file!" 1>&2
+			exit 1
+		fi
+	;;
+	"-p"|"--public"		)
+		_crt="$2"
+		# Do the same fot the public certificate that was done for the private key.
+		if test ! -f "$_crt" ; then
+			echo "$_name: $2 is not a valid file!" 1>&2
+			exit 1
+		else
+			case "$_sign" in
+				"all"|"mod"	)
+					if ! openssl x509 -in "$_crt" -text &> /dev/null ; then
+						echo "$_name: key type is not DER x509 format!" ; exit 1
+					else
+						_check_public=$(openssl x509 -noout -modulus -inform PEM \
+						-in "$_crt" | openssl md5)
+					fi
+				;;
+				"binary"	)
+					if openssl x509 -in "$_crt" -text &> /dev/null ; then
+						echo "$_name: key type is not PEM format!" ; exit 1
+					else
+						_check_public=$(openssl x509 -noout -modulus -inform DER \
+						-in "$_crt" | openssl md5)
+					fi
+				;;
+			esac
+		fi
+	;;
 	"-r"|"--rsa"		)
 		# This option can be ran without an argument, if that is done then set default.
 		! echo "$2" | grep -qe '-.*' && _rsa="$2" || break
@@ -253,19 +364,19 @@ while true ; do case "$1" in
 	"-c"|"--config"		)	test -z "$1" || test -f "$1" && _cnf="$1" ;;
 	"--fix"			)
 		# Make sure that --fix option only works with config command.
-		if ! test "$_command" = "mokey_cnf" ; then
+		if ! test "$_command" = "revise_shape" ; then
 			echo "$_name: '--fix' option only works with 'config' command!" 1>&2
 			exit 1
 		fi
 
-		_command="${_command}_fix"
+		_command="fix_${_command}"
 	;;
-	"-C"|"--country"	)	shift ; _country="$1" ;;
-	"-ST"|"--state"		)	shift ; _state="$1" ;;
-	"-L"|"--city"		)	shift ; _city="$1" ;;
-	"-O"|"--org"		)	shift ; _org="$1" ;;
-	"-CN"|"--title"		)	shift ; _title="$1" ;;
-	"-M"|"--mail"		)	shift ; _mail="$1" ;;
+	"-C"			)	shift ; _country="$1" ;;
+	"-ST"			)	shift ; _state="$1" ;;
+	"-L"			)	shift ; _city="$1" ;;
+	"-O"			)	shift ; _org="$1" ;;
+	"-CN"			)	shift ; _title="$1" ;;
+	"-M"			)	shift ; _mail="$1" ;;
 esac ; shift ; test -z "$1" && break ; done
 
 # If the command is set then exit with an error.
